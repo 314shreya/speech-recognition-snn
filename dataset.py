@@ -80,4 +80,36 @@ def load(audio_files, path):
     features = np.array(features)
     features = np.reshape(features, (features.shape[0], features.shape[1] * features.shape[2]))
     labels = np.array(labels)
+
+
+    # Shuffle the dataset
+    indices = np.arange(labels.shape[0])
+    np.random.shuffle(indices)
+    features = features[indices]
+    labels = labels[indices]
+
+
     return labels, features
+
+
+def img_2_event_img(features, snn_timestep):
+        """
+        Transform image to spikes, also called an event image
+        Args:
+            image (ndarray): image of shape batch_size x feature_dim
+            snn_timestep (int): spike timestep
+        Returns:
+            event_image: event feature array- spike encoding of the audio features
+        """
+
+        # features are in the desired shape (batch_size, feature_dim)
+        batch_size, feature_dim = features.shape
+        
+        # Generate a random array of the shape batch_size x snn_timestep x feature_dim. Numpy random rand function will be useful here.
+        random_array = np.random.rand(batch_size, snn_timestep, feature_dim)
+        
+        # Generate the event feature array
+        features = features.reshape(batch_size, 1, feature_dim)
+        event_features = np.greater(features, random_array).astype(float)
+        
+        return event_features
