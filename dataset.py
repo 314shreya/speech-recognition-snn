@@ -3,6 +3,7 @@ import os
 from scipy.signal import spectrogram
 from scipy.io import wavfile
 from python_speech_features.sigproc import framesig
+from sklearn.model_selection import train_test_split
 
 
 def get_label(file_name):
@@ -69,7 +70,7 @@ def get_features(file_name):
     return features
 
 
-def load(audio_files, path):
+def load(audio_files, path, test_size=0.2):
     labels = []
     features = []
 
@@ -81,15 +82,10 @@ def load(audio_files, path):
     features = np.reshape(features, (features.shape[0], features.shape[1] * features.shape[2]))
     labels = np.array(labels)
 
+    # Split the dataset into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size, random_state=42)
 
-    # Shuffle the dataset
-    indices = np.arange(labels.shape[0])
-    np.random.shuffle(indices)
-    features = features[indices]
-    labels = labels[indices]
-
-
-    return labels, features
+    return X_train, X_test, y_train, y_test
 
 
 def img_2_event_img(features, snn_timestep):
