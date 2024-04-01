@@ -28,7 +28,7 @@ def run(path):
     
     for example_index in range(batch_size):
         output = network.forward(X_train[example_index], y_train[example_index])
-        output_spikes.append(output)
+        output_spikes[example_index, :] = output 
 
     print(output_spikes)
 

@@ -106,10 +106,15 @@ class Network:
             weighted_input_sum = 0
             for i in range(len(self.input_neurons)):
                 synapse = self.synapses_ih[i][j]
-                neuron_output, _ = self.input_neurons[i].run(input_data[i])
-                weighted_input_sum += neuron_output * synapse.weight
-            output_spikes[j] = weighted_input_sum
 
+                self.input_neurons[i].I = input_data[i] * synapse.weight
+
+                _, neuron_output = self.input_neurons[i].run(self.input_neurons[i].I)
+                weighted_input_sum += neuron_output
+                
+            output_spikes[j] = weighted_input_sum
+            print(output_spikes[j])
+        print("output_spikes: ", output_spikes)
         predicted_index = np.argmax(output_spikes)
 
         # Learning process based on prediction accuracy
