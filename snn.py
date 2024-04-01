@@ -5,10 +5,13 @@ import network as net
 import numpy as np
 
 def run(path):
-    audio_files = os.listdir(path)[:100]
+    audio_files = os.listdir(path)
 
     X_train, X_test, y_train, y_test = dataset.load(audio_files, path, test_size=0.2)
 
+    X_train = X_train[:100]
+    y_train = y_train[:100]
+    
     print("Features shape: ", X_train.shape)
     print("Labels shape: ",y_train.shape)
 
@@ -28,6 +31,7 @@ def run(path):
     
     for example_index in range(batch_size):
         output = network.forward(X_train[example_index], y_train[example_index])
+        print("output: ", output)
         output_spikes[example_index, :] = output 
 
     print(output_spikes)

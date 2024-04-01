@@ -72,8 +72,8 @@ class Network:
                 weighted_input_sum += neuron_output
                 
             output_spikes[j] = weighted_input_sum
-            print(output_spikes[j])
-        print("output_spikes: ", output_spikes)
+            # print(output_spikes[j])
+        # print("output_spikes: ", output_spikes)
         predicted_index = np.argmax(output_spikes)
 
         # Learning process based on prediction accuracy
