@@ -4,7 +4,7 @@ from scipy.signal import spectrogram
 from scipy.io import wavfile
 from python_speech_features.sigproc import framesig
 from sklearn.model_selection import train_test_split
-
+from sklearn.model_selection import ShuffleSplit
 
 def get_label(file_name):
     return int(file_name.split("_")[0])
@@ -89,8 +89,13 @@ def load(audio_files, path, test_size=0.2):
     features = np.reshape(features, (features.shape[0], features.shape[1] * features.shape[2]))
     labels = np.array(labels)
 
-    # Split the dataset into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size, random_state=42)
+    # Initialize ShuffleSplit
+    ss = ShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+
+    # ss.split returns indices to split data, it doesn't split the data itself
+    for train_index, test_index in ss.split(features):
+        X_train, X_test = features[train_index], features[test_index]
+        y_train, y_test = labels[train_index], labels[test_index]
 
     return X_train, X_test, y_train, y_test
 

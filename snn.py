@@ -2,6 +2,7 @@ import argparse
 import os
 import dataset
 import network as net
+import numpy as np
 
 def run(path):
     audio_files = os.listdir(path)[:100]
@@ -10,11 +11,6 @@ def run(path):
 
     print("Features shape: ", X_train.shape)
     print("Labels shape: ",y_train.shape)
-
-    # Convert the images to event images (Transform image to spikes)
-    event_img = dataset.img_2_event_img(X_train, 20)
-    print("Event image shape: ",event_img.shape)
-    print("Event image length: ", len(event_img))
 
     T = 1000
     dt = 0.1
@@ -27,9 +23,14 @@ def run(path):
 
     print("Network initialization done")
 
-    output = network.forward(event_img)
+    batch_size, _ = X_train.shape
+    output_spikes = np.zeros((batch_size, output_dimension))
+    
+    for example_index in range(batch_size):
+        output = network.forward(X_train[example_index], y_train[example_index])
+        output_spikes.append(output)
 
-    print(output)
+    print(output_spikes)
 
     # Evaluate the network
     
