@@ -46,47 +46,6 @@ class Synapse:
 
     def anti_hebbian(self):
         self.weight = max(0, self.weight - 0.1)
-
-
-# class Network:
-#     def __init__(self, a, b, c, d, Vth, T, dt, input_dimension, output_dimension):
-#         self.input_neurons = [Izhikevich(a, b, c, d, Vth, T, dt) for _ in range(input_dimension)]
-#         self.output_neurons = [Izhikevich(a, b, c, d, Vth, T, dt) for _ in range(output_dimension)]
-
-#         self.synapses_ih = [[Synapse(self.input_neurons[i], self.output_neurons[j], 0.5) 
-#                              for j in range(output_dimension)] for i in range(input_dimension)]
-
-
-#     def forward(self, input_data, output_label):
-#         output_spikes = np.zeros((len(self.output_neurons)))
-
-#         # forward pass
-#         for j in range(len(self.output_neurons)):
-#             weighted_input_sum = 0
-#             for i in range(len(self.input_neurons)):
-#                 synapse = self.synapses_ih[i * len(self.output_neurons) + j]
-#                 weighted_input_sum += self.input_neurons[i].run(input_data[i])[1] * synapse.weight
-#             output_spikes[j] = weighted_input_sum
-            
-
-#         predicted_index = np.argmax(output_spikes[:])
-
-#         print(output_spikes)
-
-#         # learning: adjust based on the output and expected output
-#         for i in range(len(self.input_neurons)):
-#             for j in range(len(self.output_neurons)):
-#                 synapse = self.synapses_ih[i * len(self.output_neurons) + j]
-
-#                 # hebbian if the predicted neuron is the same as the label
-#                 if j == predicted_index and input_data[i] > 0: # did neuron actually fire???
-#                     if predicted_index == output_label:
-#                         synapse.hebbian()
-#                     else:  # Incorrect prediction
-#                         synapse.anti_hebbian() 
-
-
-#         return output_spikes
         
 
 class Network:
