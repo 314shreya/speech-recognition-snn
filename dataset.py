@@ -79,6 +79,13 @@ def load(audio_files, path, test_size=0.2):
         features.append(get_features(os.path.join(path, audio_file)))
 
     features = np.array(features)
+    
+    # features.shape[1] represents the number of feature sets extracted per audio file. 
+    # Since the features are extracted using a windowing method over the audio signal and then divided into bands, this dimension represents the number of windows or segments for which features were extracted.
+    
+    # features.shape[2] represents the number of bands
+
+    # The new second dimension is a flattened vector of the original second and third dimensions. This means each audio file's feature set is now a single vector where the feature sets from each window and the energy values from each band are concatenated into one long vector.
     features = np.reshape(features, (features.shape[0], features.shape[1] * features.shape[2]))
     labels = np.array(labels)
 

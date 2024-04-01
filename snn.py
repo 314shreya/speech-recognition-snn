@@ -20,7 +20,6 @@ def run(path):
     dt = 0.1
 
     input_dimension = 200
-    hidden_dimension = 120
     output_dimension = 10
 
 
