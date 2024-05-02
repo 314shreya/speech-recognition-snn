@@ -1,123 +1,81 @@
-import numpy as np
 import os
-from scipy.signal import spectrogram
-from scipy.io import wavfile
-from python_speech_features.sigproc import framesig
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import ShuffleSplit
+import librosa
+import torch
+import torch.nn as nn
+import torchaudio
+import torchaudio.transforms as transforms
+from torch.utils.data import TensorDataset
+import matplotlib.pyplot as plt
+
 
 def get_label(file_name):
     return int(file_name.split("_")[0])
 
 
-def get_features(file_name):
-    rate, signal = wavfile.read(file_name)
-    # print(signal.shape)
-    # plt.plot(signal)
-    # plt.show()
+def plot_waveform(waveform, sr, title="Waveform", ax=None):
+    waveform = waveform.numpy()
 
-    N = 40
-    gamma = 0.5
-    window_size = signal.shape[0] / (N * (1 - gamma) + gamma)
-    frames = framesig(signal, window_size, window_size * 0.5)
-    # print(frames.shape)
-    # plt.imshow(frames)
-    # plt.show()
+    num_channels, num_frames = waveform.shape
+    time_axis = torch.arange(0, num_frames) / sr
 
-    weighting = np.hanning(window_size)
-
-    fft = np.fft.fft(frames * weighting, axis=0)
-    fft = np.absolute(fft)
-    fft = fft**2
-    scale = np.sum(weighting**2) * rate
-    fft[1:-1, :] *= 2.0 / scale
-    fft[(0, -1), :] /= scale
-    fft = np.log(np.clip(fft, a_min=1e-6, a_max=None))
-    # plt.imshow(fft)
-    # plt.show()
-
-    freqs = float(rate) / window_size * np.arange(fft.shape[0])
-
-    features = []
-
-    for i in range(40):
-        bands = []
-        band0 = []
-        band1 = []
-        band2 = []
-        band3 = []
-        band4 = []
-        j = 0
-        for freq in freqs:
-            if freq <= 333.3:
-                band0.append(fft[j][i])
-            elif freq > 333.3 and freq <= 666.7:
-                band1.append(fft[j][i])
-            elif freq > 666.7 and freq <= 1333.3:
-                band2.append(fft[j][i])
-            elif freq > 1333.3 and freq <= 2333.3:
-                band3.append(fft[j][i])
-            elif freq > 2333.3 and freq <= 4000:
-                band4.append(fft[j][i])
-            j += 1
-        bands.append(np.sum(band0) / (np.shape(band0)[0] if np.shape(band0)[0] > 0 else 1))
-        bands.append(np.sum(band1) / (np.shape(band1)[0] if np.shape(band1)[0] > 0 else 1))
-        bands.append(np.sum(band2) / (np.shape(band2)[0] if np.shape(band2)[0] > 0 else 1))
-        bands.append(np.sum(band3) / (np.shape(band3)[0] if np.shape(band3)[0] > 0 else 1))
-        bands.append(np.sum(band4) / (np.shape(band4)[0] if np.shape(band4)[0] > 0 else 1))
-        features.append(bands)
-
-    return features
+    if ax is None:
+        _, ax = plt.subplots(num_channels, 1)
+    ax.plot(time_axis, waveform[0], linewidth=1)
+    ax.grid(True)
+    ax.set_xlim([0, time_axis[-1]])
+    ax.set_title(title)
 
 
-def load(audio_files, path, test_size=0.2):
-    labels = []
-    features = []
-
-    for audio_file in audio_files:
-        labels.append(get_label(audio_file))
-        features.append(get_features(os.path.join(path, audio_file)))
-
-    features = np.array(features)
-    
-    # features.shape[1] represents the number of feature sets extracted per audio file. 
-    # Since the features are extracted using a windowing method over the audio signal and then divided into bands, this dimension represents the number of windows or segments for which features were extracted.
-    
-    # features.shape[2] represents the number of bands
-
-    # The new second dimension is a flattened vector of the original second and third dimensions. This means each audio file's feature set is now a single vector where the feature sets from each window and the energy values from each band are concatenated into one long vector.
-    features = np.reshape(features, (features.shape[0], features.shape[1] * features.shape[2]))
-    labels = np.array(labels)
-
-    # Initialize ShuffleSplit
-    ss = ShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
-
-    # ss.split returns indices to split data, it doesn't split the data itself
-    for train_index, test_index in ss.split(features):
-        X_train, X_test = features[train_index], features[test_index]
-        y_train, y_test = labels[train_index], labels[test_index]
-
-    return X_train, X_test, y_train, y_test
+def plot_spectrogram(specgram, title=None, ylabel="freq_bin", ax=None):
+    if ax is None:
+        _, ax = plt.subplots(1, 1)
+    if title is not None:
+        ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    ax.imshow(librosa.power_to_db(specgram), origin="lower", aspect="auto", interpolation="nearest")
 
 
-def img_2_event_img(features, snn_timestep):
-        """
-        Transform image to spikes, also called an event image
-        Args:
-            image (ndarray): image of shape batch_size x feature_dim
-            snn_timestep (int): spike timestep
-        Returns:
-            event_image: event feature array- spike encoding of the audio features
-        """
+n_fft = 2048
+win_length = None
+hop_length = 128
+n_mels = 512
+n_mfcc = 64
 
-        # features are in the desired shape (batch_size, feature_dim)
-        batch_size, feature_dim = features.shape
-        
-        # Generate a random array of the shape batch_size x snn_timestep x feature_dim. Numpy random rand function will be useful here.
-        random_array = np.random.rand(batch_size, snn_timestep, feature_dim)
-        
-        # Generate the event feature array
-        features = features.reshape(batch_size, 1, feature_dim)
-        event_features = np.greater(features, random_array).astype(float)
-        
-        return event_features
+
+def load(dir_path):
+    audio_files = os.listdir(dir_path)
+
+    labels = [get_label(file) for file in audio_files]
+    inputs = []
+    for file in audio_files:
+        waveform, sample_rate = torchaudio.load(dir_path + file, normalize=True)
+
+        mfcc_transform = transforms.MFCC(
+            sample_rate=sample_rate,
+            n_mfcc=n_mfcc,
+            melkwargs={
+                "n_fft": n_fft,
+                "n_mels": n_mels,
+                "hop_length": hop_length,
+                "mel_scale": "htk",
+            },
+        )
+
+        mfcc = mfcc_transform(waveform)
+        inputs.append(mfcc[0])
+        # fig, axs = plt.subplots(2, 1)
+        # plot_waveform(waveform, sample_rate, title=f"Original waveform for sample {get_label(file)}", ax=axs[0])
+        # plot_spectrogram(mfcc[0], title="MFCC", ax=axs[1])
+        # fig.tight_layout()
+        # plt.show()
+
+    max_size = max([input_.shape[1] for input_ in inputs])
+    inputs = [nn.functional.pad(input_, (0, max_size - input_.shape[1]), "constant", 0) for input_ in inputs]
+    inputs = torch.stack(inputs)
+    inputs = inputs.unsqueeze(1)
+
+    labels = torch.Tensor(labels).type(torch.LongTensor)
+
+    dataset = TensorDataset(inputs, labels)
+
+    return dataset

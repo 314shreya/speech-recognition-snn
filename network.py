@@ -1,89 +1,127 @@
-
-import numpy as np
-
-class Izhikevich:
-    """Izhikevich neuron model"""
-    def __init__(self, a, b, c, d, Vth, T, dt):
-        self.a = a
-        self.b = b
-        self.c = c
-        self.d = d
-        self.Vth = Vth
-        self.u = self.b * self.c
-        self.T = T
-        self.dt = dt
-        self.t = np.arange(0, self.T, self.dt)
-        self.I = 0
-
-    def run(self, I):
-        V = np.zeros(len(self.t))
-        V[0] = self.c
-        u = np.zeros(len(self.t))
-        u[0] = self.u
-        num_spikes = 0
-        
-        for t in range(1, len(self.t)):
-            dv = ((0.04 * V[t - 1] ** 2) + (5 * V[t - 1]) + 140 - u[t - 1] + self.I) * self.dt
-            du = (self.a * ((self.b * V[t - 1]) - u[t - 1])) * self.dt
-            V[t] = V[t - 1] + dv
-            u[t] = u[t - 1] + du
-
-            if V[t] >= self.Vth:
-                V[t] = self.c
-                u[t] = u[t - 1] + self.d
-                num_spikes += 1
-        return V, num_spikes
-
-# weights
-class Synapse:
-    def __init__(self, pre, post, initial_weight):
-        self.pre = pre
-        self.post = post
-        self.weight = initial_weight
-
-    def hebbian(self):
-        self.weight += 0.1
-
-    def anti_hebbian(self):
-        self.weight = max(0, self.weight - 0.1)
-        
-
-class Network:
-    def __init__(self, a, b, c, d, Vth, T, dt, input_dimension, output_dimension):
-        self.input_neurons = [Izhikevich(a, b, c, d, Vth, T, dt) for _ in range(input_dimension)]
-        self.output_neurons = [Izhikevich(a, b, c, d, Vth, T, dt) for _ in range(output_dimension)]
-
-        self.synapses_ih = [[Synapse(self.input_neurons[i], self.output_neurons[j], 0.5) 
-                             for j in range(output_dimension)] for i in range(input_dimension)]
+import torch
+import torch.nn as nn
 
 
-    def forward(self, input_data, output_label):
-        output_spikes = np.zeros(len(self.output_neurons))
+class AdaptiveRateDynamicThresholdSpike(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, vth, threshold_adaptation, grad_amp, rate_scale):
+        ctx.save_for_backward(input)
+        ctx.vth = vth
+        ctx.threshold_adaptation = threshold_adaptation
+        ctx.grad_amp = grad_amp
+        ctx.rate_scale = rate_scale
 
-        # Forward pass through the network
-        for j in range(len(self.output_neurons)):
-            weighted_input_sum = 0
-            for i in range(len(self.input_neurons)):
-                synapse = self.synapses_ih[i][j]
+        # Dynamic thresholding based on the current input max
+        scaled_input = rate_scale * input
+        dynamic_vth = vth * torch.tanh(threshold_adaptation * torch.max(scaled_input))
+        output = torch.gt(scaled_input, dynamic_vth).float()
 
-                self.input_neurons[i].I = input_data[i] * synapse.weight
+        return output
 
-                _, neuron_output = self.input_neurons[i].run(self.input_neurons[i].I)
-                weighted_input_sum += neuron_output
-                
-            output_spikes[j] = weighted_input_sum
-            # print(output_spikes[j])
-        # print("output_spikes: ", output_spikes)
-        predicted_index = np.argmax(output_spikes)
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_tensors
+        vth = ctx.vth
+        threshold_adaptation = ctx.threshold_adaptation
+        grad_amp = ctx.grad_amp
+        rate_scale = ctx.rate_scale
 
-        # Learning process based on prediction accuracy
-        for i in range(len(self.input_neurons)):
-            for j in range(len(self.output_neurons)):
-                synapse = self.synapses_ih[i][j]
-                if j == predicted_index and input_data[i] > 0:
-                    if predicted_index == output_label:
-                        synapse.hebbian()
-                    else:
-                        synapse.anti_hebbian()
+        scaled_input = rate_scale * input
+        dynamic_vth = vth * torch.tanh(threshold_adaptation * torch.max(scaled_input))
+        spike_pseudo_grad = torch.exp(-((scaled_input - dynamic_vth)**2))
 
-        return output_spikes
+        grad = grad_amp * grad_output * spike_pseudo_grad
+        return grad, None, None, None, None
+
+
+class LIFNeurons(nn.Module):
+
+    def __init__(self, psp_func, pseudo_grad_ops, param):
+        super(LIFNeurons, self).__init__()
+        self.psp_func = psp_func
+        self.pseudo_grad_ops = pseudo_grad_ops
+        self.vdecay, self.vth, self.grad_win, self.grad_amp, self.rate_scale = param
+
+    def forward(self, input_data, state):
+        pre_spike, pre_volt = state
+
+        volt = pre_volt * self.vdecay * (1 - pre_spike) + self.psp_func(input_data)
+
+        # output = self.pseudo_grad_ops(volt, self.vth, self.grad_win, self.grad_amp)
+        output = self.pseudo_grad_ops(volt, self.vth, self.grad_win, self.grad_amp, self.rate_scale)
+
+        return output, (output, volt)
+
+
+class SNN(nn.Module):
+
+    def __init__(self, input_dim, output_dim, hidden_dim, param_dict):
+        super(SNN, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        pseudo_grad_ops = AdaptiveRateDynamicThresholdSpike.apply
+
+        self.hidden_cell = LIFNeurons(
+            nn.Linear(self.input_dim, self.hidden_dim, bias=False), pseudo_grad_ops, param_dict["hid_layer"]
+        )
+
+        self.output_cell = LIFNeurons(
+            nn.Linear(self.hidden_dim, self.output_dim, bias=False), pseudo_grad_ops, param_dict["out_layer"]
+        )
+
+    def forward(self, spike_data, init_states_dict, batch_size, spike_ts):
+        hidden_state, out_state = init_states_dict["hid_layer"], init_states_dict["out_layer"]
+        spike_data_flatten = spike_data.view(batch_size, self.input_dim, spike_ts)
+        output_list = []
+        for tt in range(spike_ts):
+            s_input = spike_data_flatten[:, :, tt]
+
+            hlayer_spikes, hidden_state = self.hidden_cell.forward(s_input, hidden_state)
+
+            olayer_spikes, out_state = self.output_cell.forward(hlayer_spikes, out_state)
+
+            output_list.append(olayer_spikes)
+
+        output = torch.sum(torch.stack(output_list, dim=0), dim=0)
+
+        return output
+
+
+class SNN_Network(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim, param_dict, device):
+        super(SNN_Network, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+        self.device = device
+        self.snn = SNN(input_dim, output_dim, hidden_dim, param_dict)
+
+    def forward(self, spike_data):
+        batch_size = spike_data.shape[0]
+        spike_ts = spike_data.shape[-1]
+        init_states_dict = {}
+        # Hidden layer
+        hidden_volt = torch.zeros(batch_size, self.hidden_dim, device=self.device)
+        hidden_spike = torch.zeros(batch_size, self.hidden_dim, device=self.device)
+        init_states_dict["hid_layer"] = (hidden_spike, hidden_volt)
+        # Output layer
+        out_volt = torch.zeros(batch_size, self.output_dim, device=self.device)
+        out_spike = torch.zeros(batch_size, self.output_dim, device=self.device)
+        init_states_dict["out_layer"] = (out_spike, out_volt)
+        # SNN
+        output = self.snn(spike_data, init_states_dict, batch_size, spike_ts)
+        return output
+
+
+def generate_spike_signatures(image, device, spike_ts):
+    batch_size = image.shape[0]
+    channel_size = image.shape[1]
+    image_size_d1 = image.shape[2]
+    image_size_d2 = image.shape[3]
+    image = image.view(batch_size, channel_size, image_size_d1, image_size_d2, 1)
+
+    random_image = torch.rand((batch_size, channel_size, image_size_d1, image_size_d2, spike_ts), device=device)
+    event_image = torch.gt(image.to(device), random_image).float()
+
+    return event_image
